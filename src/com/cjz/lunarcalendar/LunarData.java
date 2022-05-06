@@ -5,10 +5,16 @@ import java.io.BufferedInputStream;
 import java.io.DataInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.Collections;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
  * Created by cjz on 2019/11/20.
+ * pattern:
+ *  _________________________________________________________________________________________________
+ * |         |             |              |        |                  |        |         |          |
+ * | valid:1 | day count:9 | leap month:4 | leap:1 | month pattern:12 | date:5 | month:4 | year: 28 |
+ * |_________|_____________|______________|________|__________________|________|_________|__________|
  */
 public class LunarData {
     private static final int HEADER_LEN = 8;
@@ -21,6 +27,7 @@ public class LunarData {
     public static int LAST_YEAR = -1;
     private static Range SUPPORTED_RANGE;
 
+    private static final Object lock = new Object();
     private static final ReentrantReadWriteLock readWriteLock;
     private static final ReentrantReadWriteLock.ReadLock rL;
     private static final ReentrantReadWriteLock.WriteLock wL;
@@ -58,32 +65,6 @@ public class LunarData {
         wL = readWriteLock.writeLock();
     }
 
-
-
-    public static void lock(){
-//        rL.lock();
-    }
-
-    public static void unlock(){
-//        rL.unlock();
-    }
-
-//    public static void readLock(){
-//        rL.lock();
-//    }
-//
-//    public static void readUnlock(){
-//        rL.unlock();
-//    }
-//
-//    public static void writeLock(){
-//        wL.lock();
-//    }
-//
-//    public static void writeUnlock(){
-//        wL.unlock();
-//    }
-
     public static boolean isSupported(int startYear, int endYear){
         return SUPPORTED_RANGE.contains(startYear, endYear);
     }
@@ -93,39 +74,40 @@ public class LunarData {
         if(!SUPPORTED_RANGE.contains(startYear, endYear)){
             return false;
         }
-        if(dataRange.contains(startYear, endYear)){
+        synchronized (lock) {
+            if (dataRange.contains(startYear, endYear)) {
+                return true;
+            }
+            try {
+                readFile(startYear, endYear);
+            } catch (RuntimeException e) {
+                return false;
+            }
             return true;
         }
-        try {
-            readFile(startYear, endYear);
-        }catch (RuntimeException e){
-            return false;
-        }
-        return true;
     }
 
     public static long get(int year){
         if(!SUPPORTED_RANGE.isWithinRange(year)){
             return 0;
         }
-        if(!dataRange.isWithinRange(year)){
-            int start = Math.min(dataRange.start, year - AUTO_LOAD_RADIUS);
-            int end = Math.max(dataRange.end, year + 1 + AUTO_LOAD_RADIUS);
-            boolean b = readFile(start, end);
-            if(!b){
-                return 0;
+        synchronized (lock) {
+            if (!dataRange.isWithinRange(year)) {
+                int start = Math.min(dataRange.start, year - AUTO_LOAD_RADIUS);
+                int end = Math.max(dataRange.end, year + 1 + AUTO_LOAD_RADIUS);
+                boolean b = readFile(start, end);
+                if (!b) {
+                    return 0;
+                }
             }
+            int index = year - dataRange.start;
+            return datas[index];
         }
-        int index = year - dataRange.start;
-        return datas[index];
     }
 
     public static long getL(int year){
-//        rL.lock();
-        try{
+        synchronized (lock) {
             return get(year);
-        }finally {
-//            rL.unlock();
         }
     }
 
@@ -150,8 +132,6 @@ public class LunarData {
                 end = LAST_YEAR;
             }
 
-            datas = null;
-
             int offset, count;
             offset = start - FIRST_YEAR;
             count = end - start;
@@ -165,10 +145,13 @@ public class LunarData {
                 return false;
 //                throw new RuntimeException("Error");
             }
-            datas = new long[count];
-            dataRange = new Range(start, end);
-            for(int i = 0; i < count; ++i){
-                datas[i] = in.readLong();
+
+            synchronized (lock) {
+                datas = new long[count];
+                dataRange = new Range(start, end);
+                for (int i = 0; i < count; ++i) {
+                    datas[i] = in.readLong();
+                }
             }
 
 
@@ -195,27 +178,29 @@ public class LunarData {
 
 
 
-    public static final int YEAR_OFFSET = 36;
+    public static final int YEAR_OFFSET = 0;
     public static final long YEAR_MASK = 0xfffffffL;
 
-    public static final int MONTH_OFFSET = 32;
+    public static final int MONTH_OFFSET = 28;
     public static final long MONTH_MASK = 0xfL;//4
 
-    public static final int DATE_OFFSET = 27;
+    public static final int DATE_OFFSET = 32;
     public static final long DATE_MASK = 0B11111L;//5
 
-    public static final int MONTH_PATTERN_OFFSET = 15;
+    public static final int MONTH_PATTERN_OFFSET = 37;
     public static final long MONTH_PATTERN_MASK = 0xfffL;//12
 
-    public static final int LEAP_PATTERN_OFFSET = 14;
+    public static final int LEAP_PATTERN_OFFSET = 49;
     public static final long LEAP_PATTERN_MASK = 0x1L;//1
 
-    public static final int LEAP_MONTH_OFFSET = 10;
+    public static final int LEAP_MONTH_OFFSET = 50;
     public static final long LEAP_MONTH_MASK = 0xfL;//4
 
-    public static final int DAYS_COUNT_OFFSET = 1;
+    public static final int DAYS_COUNT_OFFSET = 54;
     public static final int DAYS_COUNT_MASK = 0x1ff;//9
 
+    public static final int VALIDATION_OFFSET = 63;
+    public static final int VALIDATION_MASK = 1;
 
     public static int year(long v){
         return (int) (v >>> YEAR_OFFSET & YEAR_MASK);
@@ -243,7 +228,7 @@ public class LunarData {
 
 
     public static boolean isValid(long v){
-        return (v & 0x1) != 0;
+        return (v >>> VALIDATION_OFFSET & VALIDATION_MASK) != 0;
     }
 
     public static int daysCount(long v){

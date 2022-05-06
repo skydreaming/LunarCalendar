@@ -55,13 +55,8 @@ public class Lunars {
     public static boolean getLunarDate(int[] in, int[] out){
         int year = in[0];
         long data = 0, lastData = 0;
-        LunarData.lock();
-        try {
-            data = LunarData.get(year);
-            lastData = LunarData.get(year - 1);
-        }finally {
-            LunarData.unlock();
-        }
+        data = LunarData.get(year);
+        lastData = LunarData.get(year - 1);
         if(LunarData.isValid(data) && LunarData.isValid(lastData)){
             cast(in, data, lastData, out);
             return true;
@@ -72,12 +67,7 @@ public class Lunars {
     public static boolean getSolarDate(int[] in, int[] out){
         final int ly = in[0], lm = in[1], ld = in[2];
         final long data;
-        LunarData.lock();
-        try{
-            data = LunarData.get(ly);
-        }finally {
-            LunarData.unlock();
-        }
+        data = LunarData.get(ly);
 
         if(LunarData.isValid(data)){
             int lunarOffset = 0;
@@ -186,86 +176,82 @@ public class Lunars {
 
         int ty = ly, tm = lm, td = ld;
 
-        LunarData.lock();
 
         final int dir = amount > 0 ? 1 : -1;
         int count = 0;
-        try{
-            long data = LunarData.get(ty);
-            int leapMonth = LunarData.leapMonth(data);
-            if(tm > 12 && leapMonth != tm - 12){
-                //log err
+
+        long data = LunarData.get(ty);
+        int leapMonth = LunarData.leapMonth(data);
+        if(tm > 12 && leapMonth != tm - 12){
+            //log err
+            return false;
+        }
+        if(dir > 0) {
+            if(tm > 12){
+                count += 12 - (tm - 12);
+            }else {
+                count += 12 - tm;
+                if(leapMonth >= tm){
+                    ++count;
+                }
+            }
+
+        }else {
+            if(tm > 12){
+                count += -(tm - 12);
+            }else {
+                count += -(tm - 1);
+                if(leapMonth > 0 && leapMonth < tm){
+                    --count;
+                }
+            }
+
+        }
+
+        while(dir > 0 && count < amount || dir < 0 && count > amount){
+            if(dir > 0){
+                ++ty;
+            }else {
+                --ty;
+            }
+            if(!isYearSupported(ty)){
                 return false;
             }
-            if(dir > 0) {
-                if(tm > 12){
-                    count += 12 - (tm - 12);
-                }else {
-                    count += 12 - tm;
-                    if(leapMonth >= tm){
-                        ++count;
-                    }
-                }
 
-            }else {
-                if(tm > 12){
-                    count += -(tm - 12);
-                }else {
-                    count += -(tm - 1);
-                    if(leapMonth > 0 && leapMonth < tm){
-                        --count;
-                    }
-                }
-
-            }
-
-            while(dir > 0 && count < amount || dir < 0 && count > amount){
-                if(dir > 0){
-                    ++ty;
-                }else {
-                    --ty;
-                }
-                if(!isYearSupported(ty)){
-                    return false;
-                }
-
-                data = LunarData.get(ty);
-                leapMonth = LunarData.leapMonth(data);
-
-                if(dir > 0){
-                    count += leapMonth > 0 ? 13 : 12;
-                }else {
-                    count -= leapMonth > 0 ? 13 : 12;
-                }
-            }
+            data = LunarData.get(ty);
+            leapMonth = LunarData.leapMonth(data);
 
             if(dir > 0){
-
-                tm = 12 + amount - count;
-
-                if(leapMonth > 0){
-                    if(leapMonth == tm){
-                        tm += 12;
-                    }else if(leapMonth > tm){
-                        ++tm;
-                    }
-                }
-
+                count += leapMonth > 0 ? 13 : 12;
             }else {
-                tm = 1 + amount - count;
-                if(leapMonth > 0){
-                    if(leapMonth == tm - 1){
-                        tm = leapMonth + 12;
-                    }else if(leapMonth < tm) {
-                        --tm;
-                    }
+                count -= leapMonth > 0 ? 13 : 12;
+            }
+        }
+
+        if(dir > 0){
+
+            tm = 12 + amount - count;
+
+            if(leapMonth > 0){
+                if(leapMonth == tm){
+                    tm += 12;
+                }else if(leapMonth > tm){
+                    ++tm;
                 }
             }
-            if(td > 29 && (tm > 12 && LunarData.leapPattern(data) == 0 || tm < 12 && LunarData.monthPattern(data, tm) == 0)){
-                td = 29;
+
+        }else {
+            tm = 1 + amount - count;
+            if(leapMonth > 0){
+                if(leapMonth == tm - 1){
+                    tm = leapMonth + 12;
+                }else if(leapMonth < tm) {
+                    --tm;
+                }
             }
-        }finally {
-            LunarData.unlock();
+        }
+        if(td > 29 && (tm > 12 && LunarData.leapPattern(data) == 0 || tm < 12 && LunarData.monthPattern(data, tm) == 0)){
+            td = 29;
         }
 
         out[0] = ty;

@@ -7,6 +7,8 @@ public class JavaOpenFile implements OpenFile{
     @Override
     public InputStream openFile() throws IOException {
         return getClass().getClassLoader().getResourceAsStream("lunars");
+//        return getClass().getClassLoader().getResourceAsStream("lunars");
+
 //        return getClass().getResourceAsStream("lunars");
     }
 }
